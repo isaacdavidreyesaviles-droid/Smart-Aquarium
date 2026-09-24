@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Smart Aquarium — En vivo</title>
+<meta name="description" content="Monitoreo en vivo de temperatura y pH de la pecera Smart Aquarium.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%A0%3C/text%3E%3C/svg%3E">
+<style>
+  /* ==========================================================================
+     Tokens de color — tema "acuario", claro/oscuro.
+     Paleta de datos (línea de la gráfica, estados) validada para contraste
+     y accesibilidad daltónica; el resto son colores de ambientación.
+     ========================================================================== */
+  :root {
+    color-scheme: light;
+
+    /* Ambientación (acuario) */
+    --bg-top: #eaf6fb;
+    --bg-bottom: #d6eef6;
+    --header-grad-1: #0f6f96;
+    --header-grad-2: #14a3b7;
+    --surface: #fcfcfb;
+    --surface-2: #f2f8fa;
+    --card-border: rgba(11, 11, 11, 0.10);
+
+    /* Texto */
+    --text-primary: #0b1b22;
+    --text-secondary: #4a5d64;
+    --text-muted: #7c8d93;
+
+    /* Datos (paleta validada) */
+    --series-temp: #2a78d6;      /* slot categórico 1 — azul */
+    --grid-line: #e1e0d9;
+    --axis-line: #c3c2b7;
+
+    /* Estados (paleta de estado — fija, no se tematiza) */
+    --estado-ok: #0ca30c;
+    --estado-ok-bg: #e3f6e3;
+    --estado-warning: #b9790a;
+    --estado-warning-bg: #fdf1d6;
+    --estado-critical: #d03b3b;
+    --estado-critical-bg: #fbe4e4;
+
+    /* LCD */
+    --lcd-bg: #16321f;
+    --lcd-fg: #8bffb0;
+
+    --shadow: 0 4px 18px rgba(9, 60, 80, 0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --bg-top: #061318;
+      --bg-bottom: #04090c;
+      --header-grad-1: #073a4f;
+      --header-grad-2: #0c6478;
+      --surface: #101c20;
+      --surface-2: #142329;
+      --card-border: rgba(255, 255, 255, 0.10);
+
+      --text-primary: #f2f7f8;
+      --text-secondary: #c3c2b7;
+      --text-muted: #8a9aa0;
+
+      --series-temp: #3987e5;
+      --grid-line: #23343a;
+      --axis-line: #383835;
+
+      --estado-ok: #0ca30c;
+      --estado-ok-bg: rgba(12, 163, 12, 0.16);
+      --estado-warning: #fab219;
+      --estado-warning-bg: rgba(250, 178, 25, 0.16);
+      --estado-critical: #e66767;
+      --estado-critical-bg: rgba(230, 103, 103, 0.16);
+
+      --lcd-bg: #0b1a10;
+      --lcd-fg: #7dffab;
+
+      --shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-top: #061318;
+    --bg-bottom: #04090c;
+    --header-grad-1: #073a4f;
+    --header-grad-2: #0c6478;
+    --surface: #101c20;
+    --surface-2: #142329;
+    --card-border: rgba(255, 255, 255, 0.10);
+
+    --text-primary: #f2f7f8;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8a9aa0;
+
+    --series-temp: #3987e5;
+    --grid-line: #23343a;
+    --axis-line: #383835;
+
+    --estado-ok: #0ca30c;
+    --estado-ok-bg: rgba(12, 163, 12, 0.16);
+    --estado-warning: #fab219;
+    --estado-warning-bg: rgba(250, 178, 25, 0.16);
+    --estado-critical: #e66767;
+    --estado-critical-bg: rgba(230, 103, 103, 0.16);
+
+    --lcd-bg: #0b1a10;
+    --lcd-fg: #7dffab;
+
+    --shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text-primary);
+    background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  a { color: inherit; }
+
+  /* ---------------------------------------------------------------- header */
+  header {
+    position: relative;
+    padding: 28px 16px 44px;
+    background: linear-gradient(135deg, var(--header-grad-1), var(--header-grad-2));
+    color: #fff;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  header h1 {
+    margin: 0;
+    font-size: clamp(1.5rem, 6vw, 2.1rem);
+    letter-spacing: 0.2px;
+  }
+
+  header .subtitulo {
+    margin: 4px 0 0;
+    opacity: 0.92;
+    font-size: 0.95rem;
+  }
+
+  #theme-toggle {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #theme-toggle:active { transform: scale(0.94); }
+
+  /* burbujas decorativas */
+  .burbuja {
+    position: absolute;
+    bottom: -20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.28);
+    animation: subir 7s infinite ease-in;
+  }
+  @keyframes subir {
+    0%   { transform: translateY(0) scale(1); opacity: 0; }
+    10%  { opacity: 0.8; }
+    100% { transform: translateY(-160px) scale(1.3); opacity: 0; }
+  }
+
+  .ola {
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    line-height: 0;
+  }
+  .ola svg { width: 100%; height: 32px; display: block; }
+  .ola path { fill: var(--bg-top); }
+
+  /* ---------------------------------------------------------------- banner */
+  #banner-offline {
+    max-width: 720px;
+    margin: -22px auto 0;
+    position: relative;
+    z-index: 2;
+    background: var(--estado-critical-bg);
+    color: var(--estado-critical);
+    border: 1px solid var(--estado-critical);
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: var(--shadow);
+  }
+  #banner-offline[hidden] { display: none; }
+
+  /* ---------------------------------------------------------------- main */
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 20px 16px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  section.tarjetas {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 520px) {
+    section.tarjetas { grid-template-columns: 1fr 1fr; }
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+  }
+
+  .card-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  /* temperatura */
+  .temp-valor {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    margin: 6px 0 2px;
+    font-variant-numeric: proportional-nums;
+  }
+  #temp-num {
+    font-size: clamp(2.6rem, 13vw, 3.4rem);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .unidad { font-size: 1.3rem; color: var(--text-secondary); font-weight: 600; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+  .badge .punto { width: 8px; height: 8px; border-radius: 50%; }
+
+  .badge.ok       { background: var(--estado-ok-bg); color: var(--estado-ok); }
+  .badge.ok .punto       { background: var(--estado-ok); }
+  .badge.error    { background: var(--estado-critical-bg); color: var(--estado-critical); }
+  .badge.error .punto    { background: var(--estado-critical); }
+  .badge.sin_datos{ background: var(--estado-warning-bg); color: var(--estado-warning); }
+  .badge.sin_datos .punto{ background: var(--estado-warning); }
+
+  /* pH */
+  .ph-valor {
+    font-size: clamp(2.6rem, 13vw, 3.4rem);
+    font-weight: 700;
+    line-height: 1;
+    margin: 6px 0 2px;
+  }
+  .ph-nota {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    background: var(--surface-2);
+    border-radius: 8px;
+    padding: 6px 10px;
+    margin: 8px 0;
+    display: inline-block;
+  }
+  .ph-mv { font-size: 0.85rem; color: var(--text-muted); }
+  .ph-mv b { color: var(--text-secondary); }
+
+  /* ---------------------------------------------------------------- LCD */
+  section.lcd-seccion h2,
+  section.grafica-seccion h2 {
+    font-size: 1rem;
+    margin: 0 0 10px;
+    color: var(--text-secondary);
+  }
+
+  .lcd {
+    background: var(--lcd-bg);
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow), inset 0 0 12px rgba(0,0,0,0.4);
+    font-family: "Courier New", ui-monospace, monospace;
+    font-size: clamp(0.85rem, 3.6vw, 1.05rem);
+    line-height: 1.7;
+    letter-spacing: 1px;
+    white-space: pre;
+    color: var(--lcd-fg);
+    text-shadow: 0 0 6px rgba(125, 255, 171, 0.45);
+    overflow-x: auto;
+  }
+
+  /* ---------------------------------------------------------------- gráfica */
+  .grafica-caja {
+    background: var(--surface);
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    padding: 14px 12px 8px;
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  #grafica {
+    width: 100%;
+    height: 220px;
+    display: block;
+    touch-action: pan-y;
+  }
+  #grafica-vacia {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    padding: 40px 10px;
+  }
+  #grafica-vacia[hidden] { display: none; }
+
+  .tooltip-grafica {
+    position: absolute;
+    pointer-events: none;
+    background: var(--text-primary);
+    color: var(--surface);
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    border-radius: 6px;
+    white-space: nowrap;
+    transform: translate(-50%, -120%);
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  /* ---------------------------------------------------------------- footer */
+  footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    margin-top: 4px;
+  }
+  footer p { margin: 2px 0; }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="burbuja" style="left:12%; width:10px; height:10px; animation-delay:0s;"></span>
+  <span class="burbuja" style="left:30%; width:6px;  height:6px;  animation-delay:1.4s;"></span>
+  <span class="burbuja" style="left:55%; width:12px; height:12px; animation-delay:2.6s;"></span>
+  <span class="burbuja" style="left:72%; width:7px;  height:7px;  animation-delay:0.8s;"></span>
+  <span class="burbuja" style="left:88%; width:9px;  height:9px;  animation-delay:3.5s;"></span>
+
+  <button id="theme-toggle" aria-label="Cambiar tema claro/oscuro" title="Cambiar tema">🌙</button>
+  <h1>🐠 Smart Aquarium</h1>
+  <p class="subtitulo">Monitoreo en vivo de la pecera</p>
+
+  <div class="ola" aria-hidden="true">
+    <svg viewBox="0 0 500 32" preserveAspectRatio="none">
+      <path d="M0,16 C125,32 175,0 250,10 C325,20 375,32 500,14 L500,32 L0,32 Z"></path>
+    </svg>
+  </div>
+</header>
+
+<div id="banner-offline" role="alert" hidden>
+  ⚠️ Sin conexión con el acuario — mostrando los últimos datos recibidos
+</div>
+
+<main>
+
+  <section class="tarjetas">
+    <div class="card">
+      <div class="card-label">Temperatura</div>
+      <div class="temp-valor">
+        <span id="temp-num">---</span><span class="unidad" id="temp-unidad" hidden>°C</span>
+      </div>
+      <span class="badge sin_datos" id="temp-badge">
+        <span class="punto"></span><span id="temp-badge-texto">Sin datos aún</span>
+      </span>
+    </div>
+
+    <div class="card">
+      <div class="card-label">pH</div>
+      <div class="ph-valor">6.5</div>
+      <span class="ph-nota">valor fijo — sensor conectado, sin calibrar</span>
+      <div class="ph-mv">Sensor pH (GPIO34): <b id="ph-mv">--</b> mV</div>
+    </div>
+  </section>
+
+  <section class="lcd-seccion">
+    <h2>Pantalla LCD 20×4 (lo que se ve físicamente en la pecera)</h2>
+    <div class="lcd" id="lcd" aria-label="Imitación de la pantalla LCD del acuario">
+      <div id="lcd-0">Smart Aquarium</div><div id="lcd-1">Temp: ---</div><div id="lcd-2">pH:   6.5</div><div id="lcd-3">&nbsp;</div>
+    </div>
+  </section>
+
+  <section class="grafica-seccion">
+    <h2>Historial de temperatura</h2>
+    <div class="grafica-caja">
+      <canvas id="grafica" role="img" aria-label="Gráfica de la temperatura del acuario a lo largo del tiempo"></canvas>
+      <div id="grafica-vacia">Esperando datos del historial…</div>
+      <div class="tooltip-grafica" id="tooltip-grafica"></div>
+    </div>
+  </section>
+
+  <footer>
+    <p id="texto-actualizado">Esperando datos…</p>
+    <p class="credit">Proyecto escolar Smart Aquarium</p>
+  </footer>
+
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // ==========================================================================
+  // EDITA ESTA LÍNEA con la databaseURL real de tu proyecto de Firebase
+  // (Consola de Firebase > Realtime Database). Ejemplo:
+  //   "https://mi-proyecto-default-rtdb.firebaseio.com"
+  // ==========================================================================
+  const DATABASE_URL = "https://TU-PROYECTO-default-rtdb.REGION.firebasedatabase.app";
+
+  const RUTA_ACTUAL = DATABASE_URL + "/acuario/actual.json";
+  const RUTA_HISTORIAL = DATABASE_URL + "/acuario/historial.json";
+
+  const SEGUNDOS_SIN_CONEXION = 10;      // umbral para mostrar el aviso de "sin conexión"
+  const MS_POLL_RESPALDO = 2000;         // frecuencia del fetch de respaldo
+  const MS_POLL_HISTORIAL = 30000;       // frecuencia de refresco de la gráfica
+
+  // ------------------------------------------------------------ referencias DOM
+  const elTempNum = document.getElementById("temp-num");
+  const elTempUnidad = document.getElementById("temp-unidad");
+  const elTempBadge = document.getElementById("temp-badge");
+  const elTempBadgeTexto = document.getElementById("temp-badge-texto");
+  const elPhMv = document.getElementById("ph-mv");
+  const elLcd1 = document.getElementById("lcd-1");
+  const elLcd2 = document.getElementById("lcd-2");
+  const elBanner = document.getElementById("banner-offline");
+  const elActualizado = document.getElementById("texto-actualizado");
+  const elGrafica = document.getElementById("grafica");
+  const elGraficaVacia = document.getElementById("grafica-vacia");
+  const elTooltip = document.getElementById("tooltip-grafica");
+  const elThemeToggle = document.getElementById("theme-toggle");
+
+  // ------------------------------------------------------------ tema claro/oscuro
+  function aplicarIconoTema() {
+    const forzado = document.documentElement.getAttribute("data-theme");
+    const prefiereOscuro = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const esOscuro = forzado ? forzado === "dark" : prefiereOscuro;
+    elThemeToggle.textContent = esOscuro ? "☀️" : "🌙";
+  }
+  try {
+    const guardado = localStorage.getItem("tema-acuario");
+    if (guardado) document.documentElement.setAttribute("data-theme", guardado);
+  } catch (e) { /* almacenamiento no disponible, seguimos con el tema del sistema */ }
+  aplicarIconoTema();
+
+  elThemeToggle.addEventListener("click", function () {
+    const actual = document.documentElement.getAttribute("data-theme");
+    const prefiereOscuro = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const esOscuroAhora = actual ? actual === "dark" : prefiereOscuro;
+    const nuevo = esOscuroAhora ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", nuevo);
+    try { localStorage.setItem("tema-acuario", nuevo); } catch (e) {}
+    aplicarIconoTema();
+    dibujarGrafica(ultimoHistorial); // repinta con los colores del nuevo tema
+  });
+
+  // ------------------------------------------------------------ estado en memoria
+  let ultimoTs = 0;
+  let ultimoHistorial = [];
+
+  // ------------------------------------------------------------ helpers de formato
+  function textoTemp(d) {
+    if (!d) return "---";
+    if (d.estado === "error") return "Error";
+    if (d.estado === "sin_datos" || d.temp === null || d.temp === undefined) return "---";
+    return Number(d.temp).toFixed(1);
+  }
+
+  function badgeInfo(estado) {
+    switch (estado) {
+      case "ok":        return { clase: "ok", texto: "Lectura válida" };
+      case "error":      return { clase: "error", texto: "Error del sensor" };
+      case "sin_datos":
+      default:           return { clase: "sin_datos", texto: "Sin datos aún" };
+    }
+  }
+
+  // ------------------------------------------------------------ actualizar la interfaz
+  function actualizarUI(d) {
+    if (!d || typeof d !== "object") return;
+
+    ultimoTs = Number(d.ts) || Date.now();
+
+    const textoT = textoTemp(d);
+    elTempNum.textContent = textoT;
+    elTempUnidad.hidden = !(d.estado === "ok" && d.temp !== null && d.temp !== undefined);
+
+    const info = badgeInfo(d.estado);
+    elTempBadge.className = "badge " + info.clase;
+    elTempBadgeTexto.textContent = info.texto;
+
+    elPhMv.textContent = (d.phMv !== undefined && d.phMv !== null) ? d.phMv : "--";
+
+    // Imitación exacta de actualizarLCD() del sketch (fila 1 y 2; la 0 y 3 son fijas)
+    if (d.estado === "error") {
+      elLcd1.textContent = "Temp: Error";
+    } else if (d.estado === "ok" && d.temp !== null && d.temp !== undefined) {
+      elLcd1.textContent = "Temp: " + Number(d.temp).toFixed(1) + " C";
+    } else {
+      elLcd1.textContent = "Temp: ---";
+    }
+    elLcd2.textContent = "pH:   6.5";
+
+    actualizarTiempo();
+  }
+
+  function actualizarTiempo() {
+    if (!ultimoTs) {
+      elActualizado.textContent = "Esperando datos…";
+      elBanner.hidden = true;
+      return;
+    }
+    const segundos = Math.max(0, Math.round((Date.now() - ultimoTs) / 1000));
+    elActualizado.textContent = "Actualizado hace " + segundos + " s";
+    elBanner.hidden = segundos <= SEGUNDOS_SIN_CONEXION;
+  }
+  setInterval(actualizarTiempo, 1000);
+
+  // ==========================================================================
+  // Conexión a Firebase: EventSource (streaming REST) con respaldo por fetch
+  // ==========================================================================
+
+  let usandoRespaldo = false;
+  let idPollRespaldo = null;
+  let ultimoMensajeEn = 0;
+
+  function fetchActual() {
+    fetch(RUTA_ACTUAL, { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d) { ultimoMensajeEn = Date.now(); actualizarUI(d); }
+      })
+      .catch(function (err) {
+        console.warn("No se pudo obtener /acuario/actual.json:", err);
+      });
+  }
+
+  function iniciarRespaldo() {
+    if (usandoRespaldo) return;
+    usandoRespaldo = true;
+    console.log("Usando modo de respaldo (fetch cada " + (MS_POLL_RESPALDO / 1000) + "s).");
+    fetchActual();
+    idPollRespaldo = setInterval(fetchActual, MS_POLL_RESPALDO);
+  }
+
+  function detenerRespaldo() {
+    if (!usandoRespaldo) return;
+    usandoRespaldo = false;
+    if (idPollRespaldo) { clearInterval(idPollRespaldo); idPollRespaldo = null; }
+  }
+
+  function manejarEventoStream(e) {
+    ultimoMensajeEn = Date.now();
+    try {
+      const evento = JSON.parse(e.data); // { path: "/...", data: ... }
+      if (evento.path === "/" && evento.data) {
+        detenerRespaldo();
+        actualizarUI(evento.data);
+      } else if (evento.data !== undefined) {
+        // Actualización parcial (patch): lo más simple y confiable es
+        // pedir el valor completo de nuevo.
+        fetchActual();
+      }
+    } catch (err) {
+      console.warn("No se pudo interpretar el evento del stream:", err);
+    }
+  }
+
+  function conectarStream() {
+    if (!("EventSource" in window)) {
+      console.log("Este navegador no soporta EventSource; uso fetch de respaldo.");
+      iniciarRespaldo();
+      return;
+    }
+    try {
+      const es = new EventSource(RUTA_ACTUAL);
+      es.addEventListener("put", manejarEventoStream);
+      es.addEventListener("patch", manejarEventoStream);
+      es.onerror = function () {
+        console.warn("EventSource: problema de conexión con Firebase; activo el respaldo.");
+        iniciarRespaldo();
+      };
+      es.onopen = function () {
+        console.log("Conectado en vivo a Firebase (EventSource).");
+      };
+    } catch (err) {
+      console.warn("No se pudo abrir EventSource, uso fetch de respaldo:", err);
+      iniciarRespaldo();
+    }
+  }
+
+  // Vigilancia: si hace rato que no llega ningún mensaje (ni por stream ni por
+  // respaldo), fuerza el modo de respaldo igualmente. No hace daño duplicar.
+  setInterval(function () {
+    if (Date.now() - ultimoMensajeEn > 8000) iniciarRespaldo();
+  }, 4000);
+
+  conectarStream();
+  fetchActual(); // primer valor inmediato, no esperar al primer evento
+
+  // ==========================================================================
+  // Historial + gráfica (canvas, dibujada a mano)
+  // ==========================================================================
+
+  function fetchHistorial() {
+    fetch(RUTA_HISTORIAL, { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (obj) {
+        if (!obj) { ultimoHistorial = []; dibujarGrafica(ultimoHistorial); return; }
+        const datos = Object.keys(obj)
+          .map(function (k) { return obj[k]; })
+          .filter(function (x) { return x && typeof x.ts === "number"; })
+          .sort(function (a, b) { return a.ts - b.ts; });
+        ultimoHistorial = datos;
+        dibujarGrafica(datos);
+      })
+      .catch(function (err) {
+        console.warn("No se pudo obtener /acuario/historial.json:", err);
+      });
+  }
+
+  function coloresGrafica() {
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      linea: cs.getPropertyValue("--series-temp").trim() || "#2a78d6",
+      grilla: cs.getPropertyValue("--grid-line").trim() || "#e1e0d9",
+      eje: cs.getPropertyValue("--axis-line").trim() || "#c3c2b7",
+      textoMuted: cs.getPropertyValue("--text-muted").trim() || "#898781",
+      textoSecundario: cs.getPropertyValue("--text-secondary").trim() || "#52514e",
+    };
+  }
+
+  // Estado del último layout calculado, para poder dibujar el crosshair
+  // en el evento de puntero sin recalcular todo.
+  let layoutActual = null;
+
+  function dibujarGrafica(datosCompletos) {
+    const datos = (datosCompletos || []).filter(function (d) {
+      return typeof d.temp === "number";
+    });
+
+    if (datos.length < 2) {
+      elGraficaVacia.hidden = false;
+      elGrafica.style.display = "none";
+      layoutActual = null;
+      return;
+    }
+    elGraficaVacia.hidden = true;
+    elGrafica.style.display = "block";
+
+    const dpr = window.devicePixelRatio || 1;
+    const anchoCss = elGrafica.clientWidth || elGrafica.parentElement.clientWidth;
+    const altoCss = 220;
+    elGrafica.width = Math.round(anchoCss * dpr);
+    elGrafica.height = Math.round(altoCss * dpr);
+    elGrafica.style.height = altoCss + "px";
+
+    const ctx = elGrafica.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, anchoCss, altoCss);
+
+    const colores = coloresGrafica();
+
+    const pad = { top: 14, right: 14, bottom: 24, left: 42 };
+    const w = anchoCss - pad.left - pad.right;
+    const h = altoCss - pad.top - pad.bottom;
+
+    const temps = datos.map(function (d) { return d.temp; });
+    let min = Math.min.apply(null, temps);
+    let max = Math.max.apply(null, temps);
+    if (min === max) { min -= 1; max += 1; }
+    const margenY = (max - min) * 0.15 || 1;
+    min -= margenY; max += margenY;
+
+    const tMin = datos[0].ts;
+    const tMax = datos[datos.length - 1].ts;
+    const spanT = Math.max(1, tMax - tMin);
+
+    function x(i) { return pad.left + (w * (datos[i].ts - tMin)) / spanT; }
+    function y(v) { return pad.top + h - (h * (v - min)) / (max - min); }
+
+    // --- grilla horizontal + etiquetas del eje Y (3 líneas) ---
+    ctx.strokeStyle = colores.grilla;
+    ctx.lineWidth = 1;
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.fillStyle = colores.textoMuted;
+    ctx.textBaseline = "middle";
+
+    const pasosY = 3;
+    for (let i = 0; i <= pasosY; i++) {
+      const v = min + ((max - min) * i) / pasosY;
+      const yy = y(v);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, yy);
+      ctx.lineTo(pad.left + w, yy);
+      ctx.stroke();
+      ctx.textAlign = "right";
+      ctx.fillText(v.toFixed(1) + "°", pad.left - 6, yy);
+    }
+
+    // --- eje X: hora inicial y final ---
+    ctx.textAlign = "left";
+    ctx.fillText(formatoHora(tMin), pad.left, altoCss - 8);
+    ctx.textAlign = "right";
+    ctx.fillText(formatoHora(tMax), pad.left + w, altoCss - 8);
+
+    // --- línea de temperatura (2px, trazo suave) ---
+    ctx.beginPath();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = colores.linea;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    datos.forEach(function (d, i) {
+      const px = x(i), py = y(d.temp);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+
+    // --- punto destacado en la última lectura ---
+    const ultX = x(datos.length - 1), ultY = y(datos[datos.length - 1].temp);
+    ctx.beginPath();
+    ctx.arc(ultX, ultY, 4, 0, Math.PI * 2);
+    ctx.fillStyle = colores.linea;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = colores.linea;
+
+    layoutActual = { datos: datos, x: x, y: y, pad: pad, w: w, h: h, altoCss: altoCss, colores: colores };
+  }
+
+  function formatoHora(ts) {
+    const d = new Date(ts);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return hh + ":" + mm;
+  }
+
+  // --- interacción: crosshair + tooltip al tocar/mover sobre la gráfica ---
+  function manejarPuntero(clientX) {
+    if (!layoutActual) return;
+    const rect = elGrafica.getBoundingClientRect();
+    const relX = clientX - rect.left;
+
+    const { datos, x, y, pad, h, altoCss, colores } = layoutActual;
+
+    // punto más cercano
+    let mejorI = 0, mejorDist = Infinity;
+    for (let i = 0; i < datos.length; i++) {
+      const dist = Math.abs(x(i) - relX);
+      if (dist < mejorDist) { mejorDist = dist; mejorI = i; }
+    }
+
+    dibujarGrafica(ultimoHistorial); // repinta base
+    const px = x(mejorI), py = y(datos[mejorI].temp);
+
+    const ctx = elGrafica.getContext("2d");
+    ctx.save();
+    ctx.strokeStyle = colores.eje;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(px, pad.top);
+    ctx.lineTo(px, altoCss - pad.bottom + 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fillStyle = colores.linea;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#fff";
+    ctx.stroke();
+    ctx.restore();
+
+    elTooltip.style.opacity = "1";
+    elTooltip.style.left = px + "px";
+    elTooltip.style.top = py + "px";
+    elTooltip.textContent = datos[mejorI].temp.toFixed(1) + "°C — " + formatoHora(datos[mejorI].ts);
+  }
+
+  function ocultarTooltip() {
+    elTooltip.style.opacity = "0";
+    if (layoutActual) dibujarGrafica(ultimoHistorial);
+  }
+
+  elGrafica.addEventListener("mousemove", function (e) { manejarPuntero(e.clientX); });
+  elGrafica.addEventListener("mouseleave", ocultarTooltip);
+  elGrafica.addEventListener("touchstart", function (e) {
+    if (e.touches[0]) manejarPuntero(e.touches[0].clientX);
+  }, { passive: true });
+  elGrafica.addEventListener("touchmove", function (e) {
+    if (e.touches[0]) manejarPuntero(e.touches[0].clientX);
+  }, { passive: true });
+  elGrafica.addEventListener("touchend", ocultarTooltip);
+
+  let temporizadorResize = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(temporizadorResize);
+    temporizadorResize = setTimeout(function () { dibujarGrafica(ultimoHistorial); }, 150);
+  });
+
+  fetchHistorial();
+  setInterval(fetchHistorial, MS_POLL_HISTORIAL);
+
+})();
+</script>
+</body>
+</html>

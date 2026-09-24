@@ -1,0 +1,6 @@
+{
+  "databaseURL": "https://TU-PROYECTO-default-rtdb.REGION.firebasedatabase.app",
+  "secret": "PEGA_AQUI_TU_SECRETO_DE_BASE_DE_DATOS",
+  "puerto": "",
+  "url_pagina": "https://TU-USUARIO-GITHUB.github.io/TU-REPOSITORIO/"
+}

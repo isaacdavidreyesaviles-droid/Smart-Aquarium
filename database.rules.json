@@ -1,0 +1,24 @@
+{
+  "rules": {
+    "acuario": {
+      ".read": true,
+      ".write": "auth != null",
+
+      "actual": {
+        ".read": true,
+        ".write": "auth != null"
+      },
+
+      "historial": {
+        ".read": true,
+        ".write": "auth != null",
+        ".indexOn": ["ts"]
+      }
+    },
+
+    "$otro": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

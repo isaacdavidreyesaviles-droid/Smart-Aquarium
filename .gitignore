@@ -1,0 +1,11 @@
+# Configuración con datos privados de Firebase (secreto de la base de datos)
+config.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# QR generado (opcional, se puede regenerar con generar_qr.py)
+qr_acuario.png
